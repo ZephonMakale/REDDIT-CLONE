@@ -36,3 +36,7 @@ def post_edit(request, pk):
     else:
         form = PostForm(instance=post, initial={'subreddits' : post.subreddits.all()})
     return render(request, 'reddit/post_edit.html', {'form': form, 'is_create': False})
+
+def post_detail(request, pk):
+    post = get_object_or_404(Post, pk=pk)
+    return render(request, 'reddit/post_detail.html', {'post': post})
