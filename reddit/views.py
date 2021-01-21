@@ -7,3 +7,19 @@ from django.contrib.auth.decorators import login_required
 def post_list(request):
     posts = Post.objects.all().order_by('-date_created')
     return render(request, 'reddit/post_list.html',  {'posts': posts})
+
+@login_required
+def post_new(request):
+    if request.method == "POST":
+        form = PostForm(request.POST)
+        if form.is_valid():
+            post = form.save(commit=False)
+            post.submitter = request.user
+            post.save()
+            for subreddit_id in request.POST.getlist('subreddits'):
+                SubRedditPost.objects.create(subreddit_id=subreddit_id, post=post)
+            return redirect('post_detail', pk=post.pk)
+    else:
+        form = PostForm()
+    return render(request, 'reddit/post_edit.html', {'form': form, 'is_create': True})
+
