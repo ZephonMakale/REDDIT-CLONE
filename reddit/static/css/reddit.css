@@ -1,3 +1,6 @@
+*{
+    font-family: 'Montserrat', sans-serif;
+}
 body {
 padding-left: 15px;
 background-color: #f9fbff;
@@ -5,7 +8,7 @@ background-color: #f9fbff;
 
 h1 a {
 color: #FCA205;
-font-family: 'Helvetica';
+font-family: 'Tangerine', cursive;
 }
 
 .page-header {
