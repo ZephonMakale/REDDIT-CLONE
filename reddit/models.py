@@ -1,9 +1,11 @@
 from django.db import models
-from django.db import models
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.contenttypes.fields import GenericForeignKey
+from django.db.models.signals import post_save, post_delete
 from django.conf import settings
 import uuid
+from django.db.models import F
+from django.dispatch import receiver
 
 class BaseModel(models.Model):
     eid = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -18,6 +20,11 @@ class BaseModel(models.Model):
         except cls.DoesNotExist:
             return None
 
+class SubRedditPost(BaseModel):
+    subreddit = models.ForeignKey('SubReddit', related_name='posts_set', on_delete=models.CASCADE)
+    post = models.ForeignKey('Post', related_name='subreddits_set', on_delete=models.CASCADE)
+
+    class Meta: unique_together = ['subreddit', 'post']
 class SubReddit(BaseModel):
     name = models.CharField(max_length=200)
     posts = models.ManyToManyField('Post', related_name='subreddits', blank=True, through='SubRedditPost')
@@ -27,16 +34,62 @@ class SubReddit(BaseModel):
     def __str__(self):
         return self.name
 
-class SubRedditPost(BaseModel):
-    subreddit = models.ForeignKey('SubReddit', related_name='posts_set', on_delete=models.CASCADE)
-    post = models.ForeignKey('Post', related_name='subreddits_set', on_delete=models.CASCADE)
-
-    class Meta: unique_together = ['subreddit', 'post']
-
 class Votable(BaseModel):
     upvote_count = models.PositiveIntegerField(default=0)
     downvote_count = models.PositiveIntegerField(default=0)
     class Meta: abstract = True
+
+    def toggle_vote(self, voter, vote_type):
+        uv = UserVote.get_or_none(voter=voter, object_id=self.eid)
+
+        if uv:
+            # Cancel existing upvote/downvote
+            if uv.vote_type == vote_type:
+                uv.delete()
+            # Switching from upvote to downvote and vice versa
+            else: 
+                uv.vote_type == vote_type
+                uv.save()
+        # User has not voted on this object before
+        else: 
+            UserVote.objects.create(voter = voter, content_object= self, vote_type=vote_type)
+    
+    def _change_vote_count(self, vote_type, delta):
+        self.refresh_from_db()
+        if vote_type == UserVote.UP_VOTE:
+            self.upvote_count = F('upvote_count') + delta
+        elif vote_type == UserVote.DOWN_VOTE:
+            self.downvote_count = F('downvote_count') + delta
+        self.save()
+        self.refresh_from_db()
+        
+    def change_upvote_count(self, delta):
+        self._change_vote_count(UserVote.UP_VOTE, delta)
+    def change_downvote_count(self, delta):
+        self._change_vote_count(UserVote.DOWN_VOTE, delta)
+
+    def get_user_vote(self, user):
+        if not user or not user.is_authenticated: return None
+
+        uv = UserVote.get_or_none(voter=voter, object_id = self.eid)
+        if not uv: return None
+        if uv.vote_type == UserVote.UP_VOTE: return 1
+        else: return -1
+    
+    def get_score(self):
+        return self.upvote_count - self.downvote_count
+
+
+    @staticmethod
+    def get_object(eid):
+        post = Post.get_or_none(eid=eid)
+        if post:
+            return post
+        
+        comment = Comment.get_or_none(eid=eid)
+        if comment:
+            return comment
+
 
 class Post(Votable):
     title = models.CharField(max_length=200)
@@ -78,3 +131,36 @@ class UserVote(BaseModel):
 
     class Meta: unique_together = ['voter', 'object_id', 'content_type']
 
+@receiver(post_save, sender=UserVote, dispatch_uid="user_voted")
+def user_voted(sender, instance, **kwargs):
+    created = kwargs.pop('created')
+    content_obj = instance.content_object
+
+    #User voting for the first time
+    if created:
+        if instance.vote_type == UserVote.UP_VOTE: content_obj.change_upvote_count(1)
+        else: content_obj.change_downvote_count(1)
+
+    else: 
+        if instance.vote_type == UserVote.UP_VOTE: 
+            content_obj.change_upvote_count(1)
+            content_obj.change_downvote_count(-1)
+        else: 
+            content_obj.change_upvote_count(-1)
+            content_obj.change_downvote_count(1)
+
+@receiver(post_delete, sender=UserVote, dispatch_uid="user_vote_deleted")
+def user_vote_deleted(sender, instance, **kwargs):
+    content_obj = instance.content_object
+
+    if instance.vote_type == UserVote.UP_VOTE: content_obj.change_upvote_count(-1)
+    else: content_obj.change_downvote_count(-1)
+
+@receiver(post_save, sender= Comment, dispatch_uid="comment_added")
+def comment_added(sender, instance, **kwargs):
+    created = kwargs.pop('created')
+    post = instance.post
+
+    if created:
+        post.comment_count = F('comment_count') + 1
+        post.save()

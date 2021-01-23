@@ -3,10 +3,16 @@ from .models import *
 from .forms import *
 from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib.auth.decorators import login_required
+from django.db.models import Q
 
 def post_list(request):
-    posts = Post.objects.all().order_by('-date_created')
-    return render(request, 'reddit/post_list.html',  {'posts': posts})
+    query = request.GET.get('query')
+    if query:
+        posts = Post.objects.filter(Q(text_icontains=query)|Q(title_icontains=query)).order_by('-date_created')
+    else:
+        posts = Post.objects.all().order_by('-date_created')
+
+    return render(request, 'reddit/post_list.html',  {'posts': posts, 'form': SearchForm(initial={'query': query})})
 
 @login_required
 def post_new(request):
@@ -60,3 +66,14 @@ def add_comment(request, pk, parent_pk=None):
     else:
         form = CommentForm()
     return render(request, 'reddit/add_comment.html', {'form': form})
+
+@login_required
+def vote(request, pk, is_upvote):
+    content_obj = Votable.get_object(pk)
+    content_obj.toggle_vote(request.user, UserVote.UP_VOTE if is_upvote else UserVote.DOWN_VOTE)
+
+    if isinstance(content_obj, Comment):
+        post = content_obj.post
+    else: 
+        post = content_obj
+    return redirect('post_detail', pk=post.pk)

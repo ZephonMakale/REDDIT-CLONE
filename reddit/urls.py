@@ -9,4 +9,8 @@ urlpatterns = [
     path('post/<uuid:pk>/edit/', views.post_edit, name='post_edit'),
     path('post/<uuid:pk>/comment/', views.add_comment, name='add_comment_to_post'),
     path('post/<uuid:pk>/comment/<uuid:parent_pk>/', views.add_comment, name='add_reply_to_comment'),
+    path('content/<uuid:pk>/upvote/', views.vote, {'is_upvote': True}, name='upvote'),
+    path('content/<uuid:pk>/downvote/', views.vote, {'is_upvote': False}, name='downvote'),
+
 ]
+
